@@ -1,0 +1,40 @@
+altair==5.5.0
+altgraph @ file:///AppleInternal/Library/BuildRoots/1db8ea6b-8e8d-11ee-9041-cedaeb4cabe2/Library/Caches/com.apple.xbs/Sources/python3/altgraph-0.17.2-py2.py3-none-any.whl
+attrs==25.3.0
+blinker==1.9.0
+cachetools==5.5.2
+certifi==2025.4.26
+charset-normalizer==3.4.2
+click==8.1.8
+future @ file:///AppleInternal/Library/BuildRoots/1db8ea6b-8e8d-11ee-9041-cedaeb4cabe2/Library/Caches/com.apple.xbs/Sources/python3/future-0.18.2-py3-none-any.whl
+gitdb==4.0.12
+GitPython==3.1.44
+graphviz==0.20.3
+idna==3.10
+Jinja2==3.1.6
+jsonschema==4.23.0
+jsonschema-specifications==2025.4.1
+macholib @ file:///AppleInternal/Library/BuildRoots/1db8ea6b-8e8d-11ee-9041-cedaeb4cabe2/Library/Caches/com.apple.xbs/Sources/python3/macholib-1.15.2-py2.py3-none-any.whl
+MarkupSafe==3.0.2
+narwhals==1.38.2
+numpy==2.0.2
+packaging==24.2
+pandas==2.2.3
+pillow==11.2.1
+protobuf==6.30.2
+pyarrow==20.0.0
+pydeck==0.9.1
+python-dateutil==2.9.0.post0
+pytz==2025.2
+referencing==0.36.2
+requests==2.32.3
+rpds-py==0.24.0
+six @ file:///AppleInternal/Library/BuildRoots/1db8ea6b-8e8d-11ee-9041-cedaeb4cabe2/Library/Caches/com.apple.xbs/Sources/python3/six-1.15.0-py2.py3-none-any.whl
+smmap==5.0.2
+streamlit==1.45.0
+tenacity==9.1.2
+toml==0.10.2
+tornado==6.4.2
+typing_extensions==4.13.2
+tzdata==2025.2
+urllib3==2.4.0
