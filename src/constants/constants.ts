@@ -47,3 +47,8 @@ export const solanaConnection = new Connection(RPC_ENDPOINT)
 
 export const STOP_LOSS_PERCENTAGE = Number(retrieveEnvVariable("STOP_LOSS_PERCENTAGE", logger));
 export const TAKE_PROFIT_PERCENTAGE = Number(retrieveEnvVariable("TAKE_PROFIT_PERCENTAGE", logger));
+
+
+export const SHYFT_API_KEY = retrieveEnvVariable("SHYFT_API_KEY", logger);
+
+

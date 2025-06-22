@@ -6,10 +6,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const web3_js_1 = require("@solana/web3.js");
 const bs58_1 = __importDefault(require("bs58"));
 const dotenv_1 = __importDefault(require("dotenv"));
-const constants_1 = require("./constants"); // Added GRPC_ENDPOINT, GRPC_TOKEN for the commented out section
+const constants_1 = require("./constants/constants");
 const meteoraSwap_1 = require("./utils/meteoraSwap");
 const bn_js_1 = require("bn.js");
 const handleSolPrice_1 = require("./handleSolPrice");
+const shyftApi_1 = require("./utils/shyftApi");
 dotenv_1.default.config();
 const solanaConnection = new web3_js_1.Connection(constants_1.RPC_ENDPOINT, 'processed');
 const keypair = web3_js_1.Keypair.fromSecretKey(bs58_1.default.decode(constants_1.PRIVATE_KEY));
@@ -27,42 +28,64 @@ async function main() {
 }
 async function processTargetCA(mint) {
     try {
-        console.log("Checking for LP pool...");
+        console.log("Checking for LP pool using Shyft API...");
+        const pools = await (0, shyftApi_1.getPoolsByToken)(mint.toBase58());
+        const balance = await solanaConnection.getBalance(keypair.publicKey);
+        console.log("Wallet balance:", balance / web3_js_1.LAMPORTS_PER_SOL, "SOL");
+        if (balance < 0.002 * web3_js_1.LAMPORTS_PER_SOL) { // 0.002 SOL is a safe minimum for fees
+            console.log("Insufficient SOL balance! Please fund your wallet.");
+            return;
+        }
         let poolId = '';
-        let poolState = null;
-        const potentialPool = await (0, meteoraSwap_1.fetchPoolOnMeteoraDYN)(solanaConnection, mint, keypair);
-        if (potentialPool) {
-            // This logic assumes fetchPoolOnMeteoraDYN returns the pool state if the mint is part of it
-            // And that potentialPool.pubkey is the address of the AMM pool itself.
-            // This might need refinement based on the exact behavior of fetchPoolOnMeteoraDYN
-            // and how you identify the pool associated with the targetMint.
-            // For dynamic AMMs, the mint address itself might be the pool address.
-            poolState = potentialPool;
-            poolId = mint.toBase58(); // Assuming target CA is the pool address for dynamic AMMs
-            // A more robust check if potentialPool is indeed the pool for `mint`:
-            // if (potentialPool.tokenAMint.equals(mint) || potentialPool.tokenBMint.equals(mint)) {
-            //     poolState = potentialPool;
-            //     poolId = potentialPool.pubkey.toBase58(); 
-            // } else {
-            //     console.log("Fetched a pool, but the target CA is not one of its mints. This might be an issue with pool discovery.");
-            //     // Potentially, mint IS the poolId for dynamic AMMs, so the above direct assignment might be correct.
-            //     // For now, we proceed assuming mint is the poolId if fetchPoolOnMeteoraDYN succeeded.
-            // }
+        let poolState = null; // This will now represent the actual LP pool address
+        if (pools && pools.length > 0) {
+            // Try to find an AMM pool first
+            let pool = pools.find(p => p.lpMint && p.tokenAMint && p.tokenBMint);
+            let poolType = 'amm';
+            if (!pool) {
+                // Fallback: try DLMM pool (has pubkey, tokenXMint, tokenYMint)
+                pool = pools.find(p => p.pubkey && p.tokenXMint && p.tokenYMint);
+                poolType = 'dlmm';
+            }
+            if (pool) {
+                const poolId = pool.lpMint || pool.pubkey || '';
+                console.log(`Found ${poolType.toUpperCase()} LP pool: ${poolId}`);
+                const poolPub = new web3_js_1.PublicKey(poolId);
+                const buyAmountLamports = new bn_js_1.BN(constants_1.BUY_AMOUNT);
+                let sig;
+                if (poolType === 'amm') {
+                    sig = await (0, meteoraSwap_1.swapOnMeteoraDYN)(solanaConnection, poolPub, keypair, buyAmountLamports, false, secondPub, constants_1.SLIPPAGE);
+                }
+                else if (poolType === 'dlmm') {
+                    sig = await (0, meteoraSwap_1.swapOnMeteora)(solanaConnection, keypair, constants_1.BUY_AMOUNT / web3_js_1.LAMPORTS_PER_SOL, true, poolId); // swapForY: true/false as needed
+                }
+                if (sig) {
+                    console.log("Buy Success :", `https://solscan.io/tx/${sig}`);
+                    await monitorAndSell(mint, poolPub, keypair, secondPub, constants_1.SLIPPAGE, buyAmountLamports);
+                }
+                else {
+                    console.log("Buy failed!");
+                }
+            }
+            else {
+                console.log("No supported pool found for this token. Skipping.");
+                return;
+            }
         }
         else {
-            console.log("No LP pool found for the target CA or error fetching pool.");
+            console.log("No LP pool found for the target CA using Shyft API.");
             return;
         }
-        if (!poolState) {
-            console.log("Could not determine pool state. Skipping.");
+        if (!poolId) {
+            console.log("Could not determine LP pool ID. Skipping.");
             return;
         }
-        console.log("LP pool found/assumed! PoolId : ", poolId);
+        console.log("LP pool found! PoolId : ", poolId);
         let checked_market = false;
         if (constants_1.CHECK_MARKET_CAP) {
             console.log("Checking MarketCap!");
             const poolPub = new web3_js_1.PublicKey(poolId);
-            const marketcap = await (0, meteoraSwap_1.getMarketCap)(solanaConnection, keypair, poolPub);
+            const marketcap = await (0, meteoraSwap_1.getMarketCap)(solanaConnection, keypair, mint);
             console.log("MarketCap => ", marketcap ? marketcap.toFixed(2) : 0);
             if (!marketcap || !(marketcap >= constants_1.MINIMUM_MARKET_CAP && marketcap <= constants_1.MAXIMUM_MARKET_CAP)) {
                 console.log("This token's market cap is out of our range! Skipping.");

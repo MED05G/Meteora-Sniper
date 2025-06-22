@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TAKE_PROFIT_PERCENTAGE = exports.STOP_LOSS_PERCENTAGE = exports.solanaConnection = exports.usdt = exports.usdc = exports.wsol = exports.PROGRAM_ID = exports.PRIORITY_FEE = exports.SLIPPAGE = exports.BLOXROUTE_AUTH_HEADER = exports.BLOXROUTE_FEE = exports.BLOXROUTE_MODE = exports.NEXT_BLOCK_FEE = exports.NEXT_BLOCK_API = exports.NEXTBLOCK_MODE = exports.JITO_FEE = exports.JITO_MODE = exports.MAXIMUM_LIQUIDITY = exports.MINIMUM_LIQUIDITY = exports.CHECK_LIQUIDITY = exports.MAXIMUM_MARKET_CAP = exports.MINIMUM_MARKET_CAP = exports.CHECK_MARKET_CAP = exports.BUY_AMOUNT = exports.TARGET_CA = exports.GRPC_TOKEN = exports.GRPC_ENDPOINT = exports.RPC_WEBSOCKET_ENDPOINT = exports.RPC_ENDPOINT = exports.SECOND_WALLET = exports.PRIVATE_KEY = void 0;
+exports.SHYFT_API_KEY = exports.TAKE_PROFIT_PERCENTAGE = exports.STOP_LOSS_PERCENTAGE = exports.solanaConnection = exports.usdt = exports.usdc = exports.wsol = exports.PROGRAM_ID = exports.PRIORITY_FEE = exports.SLIPPAGE = exports.BLOXROUTE_AUTH_HEADER = exports.BLOXROUTE_FEE = exports.BLOXROUTE_MODE = exports.NEXT_BLOCK_FEE = exports.NEXT_BLOCK_API = exports.NEXTBLOCK_MODE = exports.JITO_FEE = exports.JITO_MODE = exports.MAXIMUM_LIQUIDITY = exports.MINIMUM_LIQUIDITY = exports.CHECK_LIQUIDITY = exports.MAXIMUM_MARKET_CAP = exports.MINIMUM_MARKET_CAP = exports.CHECK_MARKET_CAP = exports.BUY_AMOUNT = exports.TARGET_CA = exports.GRPC_TOKEN = exports.GRPC_ENDPOINT = exports.RPC_WEBSOCKET_ENDPOINT = exports.RPC_ENDPOINT = exports.SECOND_WALLET = exports.PRIVATE_KEY = void 0;
 const web3_js_1 = require("@solana/web3.js");
 const logger_1 = require("../utils/logger");
 const utils_1 = require("../utils/utils");
@@ -38,3 +38,4 @@ exports.usdt = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"; // USDT
 exports.solanaConnection = new web3_js_1.Connection(exports.RPC_ENDPOINT);
 exports.STOP_LOSS_PERCENTAGE = Number((0, utils_1.retrieveEnvVariable)("STOP_LOSS_PERCENTAGE", logger_1.logger));
 exports.TAKE_PROFIT_PERCENTAGE = Number((0, utils_1.retrieveEnvVariable)("TAKE_PROFIT_PERCENTAGE", logger_1.logger));
+exports.SHYFT_API_KEY = (0, utils_1.retrieveEnvVariable)("SHYFT_API_KEY", logger_1.logger);

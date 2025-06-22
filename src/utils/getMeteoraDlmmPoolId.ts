@@ -4,6 +4,21 @@ import fetch from 'node-fetch'; // Or your preferred HTTP client like axios
 // It's highly recommended to store your API key in an environment variable
 const SHYFT_API_KEY = process.env.SHYFT_API_KEY; 
 
+interface PoolData {
+  baseKey: string;
+  activeId: string;
+  tokenXMint: string;
+  tokenYMint: string;
+  status: number;
+}
+
+interface ShyftGraphQLResponse {
+  data?: {
+    meteora_dlmm_LbPair: PoolData[];
+  };
+  errors?: any[]; // You might want to define a more specific interface for errors
+}
+
 export const getMeteoraDlmmPoolId = async (tokenAddressX: PublicKey, tokenAddressY: PublicKey): Promise<PublicKey | null> => {
   if (!SHYFT_API_KEY) {
     console.error("SHYFT_API_KEY is not set in environment variables.");
@@ -38,6 +53,8 @@ export const getMeteoraDlmmPoolId = async (tokenAddressX: PublicKey, tokenAddres
       }
     `;
 
+    console.log("Shyft GraphQL Query:", operationsDoc); // Log the query
+
     const result = await fetch(
       `https://programs.shyft.to/v0/graphql/accounts?api_key=${SHYFT_API_KEY}&network=mainnet-beta`,
       {
@@ -47,7 +64,10 @@ export const getMeteoraDlmmPoolId = async (tokenAddressX: PublicKey, tokenAddres
       }
     );
 
-    const responseJson = await result.json();
+    console.log("Shyft API Fetch Result Status:", result.status, result.statusText); // Log fetch result status
+
+    const responseJson = await result.json() as ShyftGraphQLResponse;
+    console.log("Shyft API Raw Response:", JSON.stringify(responseJson, null, 2)); // Log raw JSON response
 
     if (responseJson.errors) {
       console.error("Shyft GraphQL Errors:", responseJson.errors);
@@ -55,6 +75,7 @@ export const getMeteoraDlmmPoolId = async (tokenAddressX: PublicKey, tokenAddres
     }
 
     const pools = responseJson.data?.meteora_dlmm_LbPair;
+    console.log("Extracted Pools:", pools); // Log the extracted pools array
 
     if (pools && pools.length > 0) {
       const poolInfo = pools[0];

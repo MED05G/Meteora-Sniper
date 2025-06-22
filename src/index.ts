@@ -2,10 +2,11 @@
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
 import dotenv from 'dotenv';
-import { BUY_AMOUNT, CHECK_LIQUIDITY, CHECK_MARKET_CAP, MAXIMUM_LIQUIDITY, MAXIMUM_MARKET_CAP, MINIMUM_LIQUIDITY, MINIMUM_MARKET_CAP, PRIVATE_KEY, RPC_ENDPOINT, SECOND_WALLET, SLIPPAGE, TARGET_CA, STOP_LOSS_PERCENTAGE, TAKE_PROFIT_PERCENTAGE, GRPC_ENDPOINT, GRPC_TOKEN } from './constants'; // Added GRPC_ENDPOINT, GRPC_TOKEN for the commented out section
-import { fetchPoolOnMeteoraDYN, getLiquidity, getMarketCap, swapOnMeteoraDYN, getTokenPriceJup, sellOnMeteoraDYN } from './utils/meteoraSwap';
+import { BUY_AMOUNT, CHECK_LIQUIDITY, CHECK_MARKET_CAP, MAXIMUM_LIQUIDITY, MAXIMUM_MARKET_CAP, MINIMUM_LIQUIDITY, MINIMUM_MARKET_CAP, PRIVATE_KEY, RPC_ENDPOINT, SECOND_WALLET, SLIPPAGE, TARGET_CA, STOP_LOSS_PERCENTAGE, TAKE_PROFIT_PERCENTAGE, GRPC_ENDPOINT, GRPC_TOKEN } from './constants/constants';
+import { fetchPoolOnMeteoraDYN, getLiquidity, getMarketCap, swapOnMeteoraDYN, getTokenPriceJup, sellOnMeteoraDYN, swapOnMeteora } from './utils/meteoraSwap';
 import { BN } from 'bn.js';
 import { startSolPricePolling } from './handleSolPrice';
+import { getPoolsByToken } from './utils/shyftApi';
 
 dotenv.config()
 
@@ -29,47 +30,64 @@ async function main(): Promise<void> {
 
 async function processTargetCA(mint: PublicKey) {
     try {
-        console.log("Checking for LP pool...");
+        console.log("Checking for LP pool using Shyft API...");
+        const pools = await getPoolsByToken(mint.toBase58());
+        const balance = await solanaConnection.getBalance(keypair.publicKey);
+        console.log("Wallet balance:", balance / LAMPORTS_PER_SOL, "SOL");
+        if (balance < 0.002 * LAMPORTS_PER_SOL) { // 0.002 SOL is a safe minimum for fees
+            console.log("Insufficient SOL balance! Please fund your wallet.");
+            return;
+        }
+        
         let poolId = '';
-        let poolState = null;
-
-        const potentialPool = await fetchPoolOnMeteoraDYN(solanaConnection, mint, keypair);
-        if (potentialPool) {
-            // This logic assumes fetchPoolOnMeteoraDYN returns the pool state if the mint is part of it
-            // And that potentialPool.pubkey is the address of the AMM pool itself.
-            // This might need refinement based on the exact behavior of fetchPoolOnMeteoraDYN
-            // and how you identify the pool associated with the targetMint.
-            // For dynamic AMMs, the mint address itself might be the pool address.
-            poolState = potentialPool; 
-            poolId = mint.toBase58(); // Assuming target CA is the pool address for dynamic AMMs
-            
-            // A more robust check if potentialPool is indeed the pool for `mint`:
-            // if (potentialPool.tokenAMint.equals(mint) || potentialPool.tokenBMint.equals(mint)) {
-            //     poolState = potentialPool;
-            //     poolId = potentialPool.pubkey.toBase58(); 
-            // } else {
-            //     console.log("Fetched a pool, but the target CA is not one of its mints. This might be an issue with pool discovery.");
-            //     // Potentially, mint IS the poolId for dynamic AMMs, so the above direct assignment might be correct.
-            //     // For now, we proceed assuming mint is the poolId if fetchPoolOnMeteoraDYN succeeded.
-            // }
-
+        let poolState = null; // This will now represent the actual LP pool address
+               if (pools && pools.length > 0) {
+            // Try to find an AMM pool first
+            let pool = pools.find(p => p.lpMint && p.tokenAMint && p.tokenBMint);
+            let poolType = 'amm';
+            if (!pool) {
+                // Fallback: try DLMM pool (has pubkey, tokenXMint, tokenYMint)
+                pool = pools.find(p => p.pubkey && p.tokenXMint && p.tokenYMint);
+                poolType = 'dlmm';
+            }
+            if (pool) {
+                const poolId = pool.lpMint || pool.pubkey || '';
+                console.log(`Found ${poolType.toUpperCase()} LP pool: ${poolId}`);
+                const poolPub = new PublicKey(poolId);
+                const buyAmountLamports = new BN(BUY_AMOUNT);
+                let sig;
+                if (poolType === 'amm') {
+                    sig = await swapOnMeteoraDYN(solanaConnection, poolPub, keypair, buyAmountLamports, false, secondPub, SLIPPAGE);
+                } else if (poolType === 'dlmm') {
+                    sig = await swapOnMeteora(solanaConnection, keypair, BUY_AMOUNT / LAMPORTS_PER_SOL, true, poolId); // swapForY: true/false as needed
+                }
+                if (sig) {
+                    console.log("Buy Success :", `https://solscan.io/tx/${sig}`);
+                    await monitorAndSell(mint, poolPub, keypair, secondPub, SLIPPAGE, buyAmountLamports);
+                } else {
+                    console.log("Buy failed!");
+                }
+            } else {
+                console.log("No supported pool found for this token. Skipping.");
+                return;
+            }
         } else {
-            console.log("No LP pool found for the target CA or error fetching pool.");
+            console.log("No LP pool found for the target CA using Shyft API.");
             return;
         }
 
-        if (!poolState) {
-            console.log("Could not determine pool state. Skipping.");
+        if (!poolId) {
+            console.log("Could not determine LP pool ID. Skipping.");
             return;
         }
 
-        console.log("LP pool found/assumed! PoolId : ", poolId);
+        console.log("LP pool found! PoolId : ", poolId);
 
         let checked_market = false;
         if (CHECK_MARKET_CAP) {
             console.log("Checking MarketCap!");
             const poolPub = new PublicKey(poolId);
-            const marketcap = await getMarketCap(solanaConnection, keypair, poolPub);
+            const marketcap = await getMarketCap(solanaConnection, keypair, mint);
             console.log("MarketCap => ", marketcap ? marketcap.toFixed(2) : 0);
             if (!marketcap || !(marketcap >= MINIMUM_MARKET_CAP && marketcap <= MAXIMUM_MARKET_CAP)) {
                 console.log("This token's market cap is out of our range! Skipping.");
@@ -200,4 +218,5 @@ main().catch((err) => {
     console.error('Unhandled error in main:', err);
     process.exit(1);
 });
+
 

@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getTokenPriceJup = exports.getLiquidity = exports.getMarketCap = exports.fetchPoolOnMeteoraDYN = exports.sellOnMeteoraDYN = exports.swapOnMeteoraDYN = exports.buildVersionedTx = exports.swapOnMeteora = exports.getDlmmPool = exports.PROGRAM_ID = exports.DEFAULT_FINALITY = exports.DEFAULT_COMMITMENT = void 0;
+exports.fetchPoolOnMeteoraDYN = exports.getTokenPriceJup = exports.fetchTokenAccountBalanceWithRetry = exports.getLiquidity = exports.getMarketCap = exports.sellOnMeteoraDYN = exports.swapOnMeteoraDYN = exports.buildVersionedTx = exports.swapOnMeteora = exports.getDlmmPool = exports.PROGRAM_ID = exports.DEFAULT_FINALITY = exports.DEFAULT_COMMITMENT = void 0;
 const dlmm_1 = __importDefault(require("@meteora-ag/dlmm"));
 const anchor_1 = require("@coral-xyz/anchor");
 const dynamic_amm_sdk_1 = __importDefault(require("@mercurial-finance/dynamic-amm-sdk"));
@@ -15,7 +15,6 @@ const constants_1 = require("../constants");
 const jito_1 = require("../executor/jito");
 const bloXroute_1 = require("../executor/bloXroute");
 const axios_1 = __importDefault(require("axios"));
-const handleSolPrice_1 = require("../handleSolPrice");
 exports.DEFAULT_COMMITMENT = "finalized";
 exports.DEFAULT_FINALITY = "finalized";
 exports.PROGRAM_ID = 'Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB';
@@ -250,7 +249,7 @@ const swapOnMeteoraDYN = async (connection, poolAddress, wallet, swapAmount, swa
             buySig = swapTxHash;
         }
         const fromWalletAta = (0, spl_token_1.getAssociatedTokenAddressSync)(outTokenMint, wallet.publicKey);
-        const info = await fetchTokenAccountBalanceWithRetry(connection, fromWalletAta);
+        const info = await (0, exports.fetchTokenAccountBalanceWithRetry)(connection, fromWalletAta);
         console.log("🚀 ~ swapOnMeteoraDYN ~ info:", info);
         const tokenBalance = info.value.amount;
         if (!tokenBalance)
@@ -373,7 +372,7 @@ toWallet, slippage) => {
             sellSig = swapTxHash;
         }
         const fromWalletAta = (0, spl_token_1.getAssociatedTokenAddressSync)(outTokenMint, wallet.publicKey);
-        const info = await fetchTokenAccountBalanceWithRetry(connection, fromWalletAta);
+        const info = await (0, exports.fetchTokenAccountBalanceWithRetry)(connection, fromWalletAta);
         console.log("🚀 ~ sellOnMeteoraDYN ~ info:", info);
         const tokenBalance = info.value.amount;
         if (!tokenBalance)
@@ -397,47 +396,35 @@ toWallet, slippage) => {
     }
 };
 exports.sellOnMeteoraDYN = sellOnMeteoraDYN;
-const MAX_RETRIES = 5; // Maximum number of retries
-const RETRY_DELAY = 1000; // Delay between retries in milliseconds (1 second)
-async function fetchTokenAccountBalanceWithRetry(connection, fromWalletAta, retries = MAX_RETRIES) {
+const getMarketCap = async (connection, wallet, tokenMintAddress) => {
     try {
-        const info = await connection.getTokenAccountBalance(fromWalletAta);
-        if (!info)
-            throw new Error('No token account info found');
-        if (info.value.uiAmount == null)
-            throw new Error('No balance found');
-        return info; // Return the balance info if successful
+        const tokenMintInfo = await (0, spl_token_1.getMint)(connection, tokenMintAddress);
+        const totalSupply = tokenMintInfo.supply;
+        const decimals = tokenMintInfo.decimals;
+        // Get the current price of the token in SOL
+        const tokenPriceInSol = await (0, exports.getTokenPriceJup)(tokenMintAddress.toBase58());
+        if (!tokenPriceInSol) {
+            console.log(`Could not fetch price for token: ${tokenMintAddress.toBase58()}`);
+            return null;
+        }
+        // Get the current price of SOL in USD
+        const solPriceUSD = await (0, exports.getTokenPriceJup)('So11111111111111111111111111111111111111112');
+        if (!solPriceUSD) {
+            console.log("Could not fetch SOL price.");
+            return null;
+        }
+        // Calculate market cap in USD
+        const totalSupplyAdjusted = Number(totalSupply) / (10 ** decimals);
+        const marketCapUSD = totalSupplyAdjusted * tokenPriceInSol * solPriceUSD;
+        return marketCapUSD;
     }
     catch (error) {
-        if (retries > 0) {
-            console.log(`Retrying... Attempts left: ${retries}`);
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY)); // Wait before retrying
-            return fetchTokenAccountBalanceWithRetry(connection, fromWalletAta, retries - 1); // Retry
-        }
-        else {
-            throw new Error(`Failed to fetch token account balance after ${MAX_RETRIES}`);
-        }
+        console.error("Error fetching market cap:", error);
+        return null;
     }
-}
-async function sendTransactionWithRetry(connection, transaction, wallet, retries = MAX_RETRIES) {
-    try {
-        const latestBlockHash = await connection.getLatestBlockhash('confirmed');
-        transaction.recentBlockhash = latestBlockHash.blockhash;
-        const signature = await (0, web3_js_1.sendAndConfirmTransaction)(connection, transaction, [wallet]);
-        return signature; // Return the transaction signature if successful
-    }
-    catch (error) {
-        if (retries > 0) {
-            console.log(`Retrying... Attempts left: ${retries}`);
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY)); // Wait before retrying
-            return sendTransactionWithRetry(connection, transaction, wallet, retries - 1); // Retry
-        }
-        else {
-            throw new Error(`Failed to send transaction after ${MAX_RETRIES}`);
-        }
-    }
-}
-const fetchPoolOnMeteoraDYN = async (connection, poolAddress, wallet) => {
+};
+exports.getMarketCap = getMarketCap;
+const getLiquidity = async (connection, wallet, poolAddress) => {
     try {
         const mockWallet = new anchor_1.Wallet(wallet);
         const provider = new anchor_1.AnchorProvider(connection, mockWallet, {
@@ -445,72 +432,62 @@ const fetchPoolOnMeteoraDYN = async (connection, poolAddress, wallet) => {
         });
         const ammProgram = new anchor_1.Program(idl_1.IDL, exports.PROGRAM_ID, provider);
         let poolState = await ammProgram.account.pool.fetch(poolAddress);
-        if (poolState) {
-            return poolState;
+        // Assuming tokenBMint is wSOL (or a stablecoin) for liquidity calculation
+        // This needs to be robust based on how Meteora pools are structured.
+        // For now, we'll assume the liquidity is represented by the balance of tokenB if tokenB is wSOL.
+        // A more accurate approach would be to sum the value of both tokens in the pool.
+        const tokenBMint = poolState.tokenBMint;
+        const tokenBAccount = (0, spl_token_1.getAssociatedTokenAddressSync)(tokenBMint, poolAddress, true); // true for allowOwnerOffCurve
+        const tokenBBalance = await connection.getTokenAccountBalance(tokenBAccount);
+        if (tokenBBalance.value.uiAmount === null) {
+            console.log("Could not get token B balance for liquidity calculation.");
+            return null;
+        }
+        // Convert token B amount to SOL value if token B is wSOL
+        if (tokenBMint.toBase58() === 'So11111111111111111111111111111111111111112') { // wSOL mint address
+            return tokenBBalance.value.uiAmount;
         }
         else {
-            return false;
+            // If token B is not wSOL, we need to convert its value to SOL
+            const tokenBPriceInSol = await (0, exports.getTokenPriceJup)(tokenBMint.toBase58());
+            if (tokenBPriceInSol) {
+                return tokenBBalance.value.uiAmount * tokenBPriceInSol;
+            }
+            else {
+                console.log(`Could not get price for token B: ${tokenBMint.toBase58()} to calculate liquidity in SOL.`);
+                return null;
+            }
         }
     }
     catch (error) {
+        console.error("Error fetching liquidity:", error);
         return null;
     }
 };
-exports.fetchPoolOnMeteoraDYN = fetchPoolOnMeteoraDYN;
-const getMarketCap = async (connection, wallet, poolAddress) => {
-    const mockWallet = new anchor_1.Wallet(wallet);
-    const provider = new anchor_1.AnchorProvider(connection, mockWallet, {
-        commitment: 'confirmed',
-    });
-    const pool = await dynamic_amm_sdk_1.default.create(provider.connection, poolAddress);
-    const mintA = pool.tokenAMint.address.toBase58();
-    const mintB = pool.tokenBMint.address.toBase58();
-    if (mintA !== 'So11111111111111111111111111111111111111112' && mintB !== 'So11111111111111111111111111111111111111112') {
-        console.log("Its not $token/$wsol pool");
-        return false;
-    }
-    const tokenASupply = (mintA === 'So11111111111111111111111111111111111111112') ? Number(pool.tokenBMint.supply) / (10 ** pool.tokenBMint.decimals) : Number(pool.tokenAMint.supply) / (10 ** pool.tokenAMint.decimals);
-    const solprice = (0, handleSolPrice_1.getSolPriceFromFile)();
-    const tokenAAmount = mintA === 'So11111111111111111111111111111111111111112' ? Number(pool.poolInfo.tokenAAmount) / (10 ** pool.tokenAMint.decimals) : Number(pool.poolInfo.tokenBAmount) / (10 ** pool.tokenBMint.decimals);
-    const tokenBAmount = mintB === 'So11111111111111111111111111111111111111112' ? Number(pool.poolInfo.tokenAAmount) / (10 ** pool.tokenAMint.decimals) : Number(pool.poolInfo.tokenBAmount) / (10 ** pool.tokenBMint.decimals);
-    const priceSol = Number(tokenAAmount) / Number(tokenBAmount);
-    if (!priceSol) {
-        return false;
-    }
-    if (!solprice)
-        return false;
-    return Number(priceSol) * solprice * Number(tokenASupply);
-};
-exports.getMarketCap = getMarketCap;
-const getLiquidity = async (connection, wallet, poolAddress) => {
-    const mockWallet = new anchor_1.Wallet(wallet);
-    const provider = new anchor_1.AnchorProvider(connection, mockWallet, {
-        commitment: 'confirmed',
-    });
-    const pool = await dynamic_amm_sdk_1.default.create(provider.connection, poolAddress);
-    const mintA = pool.tokenAMint.address.toBase58();
-    const mintB = pool.tokenBMint.address.toBase58();
-    if (mintA !== 'So11111111111111111111111111111111111111112' && mintB !== 'So11111111111111111111111111111111111111112') {
-        console.log("Its not $token/$wsol pool");
-        return false;
-    }
-    const tokenAAmount = mintA === 'So11111111111111111111111111111111111111112' ? Number(pool.poolInfo.tokenAAmount) / (10 ** pool.tokenAMint.decimals) : Number(pool.poolInfo.tokenBAmount) / (10 ** pool.tokenBMint.decimals);
-    const tokenBAmount = mintB === 'So11111111111111111111111111111111111111112' ? Number(pool.poolInfo.tokenAAmount) / (10 ** pool.tokenAMint.decimals) : Number(pool.poolInfo.tokenBAmount) / (10 ** pool.tokenBMint.decimals);
-    const solprice = (0, handleSolPrice_1.getSolPriceFromFile)();
-    if (!solprice)
-        return false;
-    return (tokenAAmount * solprice) + (tokenBAmount * solprice);
-};
 exports.getLiquidity = getLiquidity;
+const fetchTokenAccountBalanceWithRetry = async (connection, tokenAccount, retries = 5, delay = 1000) => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const info = await connection.getTokenAccountBalance(tokenAccount);
+            if (info.value.amount !== undefined) {
+                return info;
+            }
+        }
+        catch (error) {
+            console.warn(`Attempt ${i + 1} failed to fetch token account balance:`, error);
+        }
+        await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    throw new Error(`Failed to fetch token account balance after ${retries} retries.`);
+};
+exports.fetchTokenAccountBalanceWithRetry = fetchTokenAccountBalanceWithRetry;
 const getTokenPriceJup = async (mintAddress) => {
     try {
         const response = await axios_1.default.get(`https://price.jup.ag/v4/price?ids=${mintAddress}`);
         if (response.data && response.data.data && response.data.data[mintAddress]) {
             return response.data.data[mintAddress].price;
         }
-        else {
-            return null;
-        }
+        return null;
     }
     catch (error) {
         console.error(`Error fetching price for ${mintAddress} from Jupiter:`, error);
@@ -518,3 +495,10 @@ const getTokenPriceJup = async (mintAddress) => {
     }
 };
 exports.getTokenPriceJup = getTokenPriceJup;
+const fetchPoolOnMeteoraDYN = async (connection, mint, wallet) => {
+    // This function is now deprecated as we are using Shyft API for LP discovery.
+    // It might be used internally by other Meteora SDK functions, but not for initial LP discovery.
+    // For now, we return null as it's no longer the primary method for finding pools.
+    return null;
+};
+exports.fetchPoolOnMeteoraDYN = fetchPoolOnMeteoraDYN;
